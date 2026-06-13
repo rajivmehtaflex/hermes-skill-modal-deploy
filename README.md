@@ -4,6 +4,8 @@ Deploy GPU-enabled applications to Modal cloud with intelligent configuration an
 
 ## Quick Install
 
+### Option 1: Using gh CLI (Recommended)
+
 ```bash
 # Clone repository
 gh repo clone rajivmehtaflex/hermes-skill-modal-deploy
@@ -16,9 +18,16 @@ cp -r hermes-skill-modal-deploy ~/.hermes/skills/mlops/modal-deploy
 hermes skills list | grep modal-deploy
 ```
 
-## Alternative (without gh CLI)
+### Option 2: One-Line Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/rajivmehtaflex/hermes-skill-modal-deploy/main/install.sh | bash
+```
+
+### Option 3: Using curl (without gh CLI)
+
+```bash
+# Download and install
 curl -L https://github.com/rajivmehtaflex/hermes-skill-modal-deploy/archive/refs/heads/main.tar.gz | tar xz
 mv hermes-skill-modal-deploy-main ~/.hermes/skills/mlops/modal-deploy
 ```
