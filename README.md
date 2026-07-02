@@ -1,55 +1,84 @@
-# Hermes Agent Skill: Modal Deploy
+# Modal Deploy — Agent Skill
 
-Deploy GPU-enabled applications to Modal cloud with intelligent configuration and best practices.
+Deploy GPU-enabled applications to [Modal](https://modal.com) cloud with intelligent configuration, GPU pre-checks, and best practices.
+
+Works with **Claude Code**, **Codex**, **Antigravity**, and **Hermes Agent**.
 
 ## Quick Install
 
-### Option 1: Using gh CLI (Recommended)
+### Option 1: `npx skills add` (Recommended — All Agents)
 
 ```bash
-# Clone repository
-gh repo clone rajivmehtaflex/hermes-skill-modal-deploy
+# Auto-detect and install for all available agents
+npx skills add rajivmehtaflex/modal-deploy
 
-# Install skill into Hermes Agent (idempotent; excludes .git)
+# Install for a specific agent
+npx skills add rajivmehtaflex/modal-deploy -a claude-code
+npx skills add rajivmehtaflex/modal-deploy -a codex
+npx skills add rajivmehtaflex/modal-deploy -a antigravity
+
+# Install globally (user-level, not project-level)
+npx skills add rajivmehtaflex/modal-deploy -g
+
+# List available skills without installing
+npx skills add rajivmehtaflex/modal-deploy -l
+```
+
+### Option 2: One-Line Install Script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rajivmehtaflex/modal-deploy/main/install.sh | bash
+```
+
+The script auto-detects installed agents (Hermes, Claude Code, Codex) and copies the skill to the correct location for each.
+
+### Option 3: Manual Install
+
+```bash
+# Clone
+git clone https://github.com/rajivmehtaflex/modal-deploy.git
+
+# Hermes Agent
 mkdir -p ~/.hermes/skills/mlops/
-rm -rf ~/.hermes/skills/mlops/modal-deploy
-cp -r hermes-skill-modal-deploy ~/.hermes/skills/mlops/modal-deploy
-rm -rf ~/.hermes/skills/mlops/modal-deploy/.git
+cp -r modal-deploy ~/.hermes/skills/mlops/modal-deploy
 
-# Verify installation
-hermes skills list | grep modal-deploy
+# Claude Code
+mkdir -p ~/.claude/skills/
+cp -r modal-deploy ~/.claude/skills/modal-deploy
+
+# Codex
+mkdir -p ~/.codex/skills/
+cp -r modal-deploy ~/.codex/skills/modal-deploy
 ```
 
-### Option 2: One-Line Install
+## Features
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/rajivmehtaflex/hermes-skill-modal-deploy/main/install.sh | bash
-```
-
-### Option 3: Using curl (without gh CLI)
-
-```bash
-# Download and install (idempotent)
-curl -fsSL https://github.com/rajivmehtaflex/hermes-skill-modal-deploy/archive/refs/heads/main.tar.gz | tar xz
-mkdir -p ~/.hermes/skills/mlops/
-rm -rf ~/.hermes/skills/mlops/modal-deploy
-mv hermes-skill-modal-deploy-main ~/.hermes/skills/mlops/modal-deploy
-```
-
-## Usage
-
-Invoke skill in Hermes Agent:
-```
-load modal-deploy skill
-```
-
-## Resources
-
-- **GPU Options**: T4, L4, A10, L40S, A100, H100, H200, B200
+- **GPU Support**: T4, L4, A10, L40S, A100, H100, H200, B200
 - **Pricing**: $0.59/h (T4) to $6.25/h (B200)
-- **GPU Pre-Check**: Timeout-bounded allocation test (`templates/check_gpu.py`) for scarce GPUs
-- **Templates**: a complete deployable web-terminal app — `modal_app.py`, `main.py` (PTY-WebSocket bridge), `static/index.html` (xterm.js), `pyproject.toml`, `deploy.sh`, `check_gpu.py`, `.env.example`. Deploy with `cp -r templates my-terminal && cd my-terminal && cp .env.example .env && uv sync && ./deploy.sh` (no auth on the terminal — stop the app when idle)
-- **Best Practices**: Mount filtering, WebSocket PTY bridge
+- **GPU Pre-Check**: Timeout-bounded allocation test (`check_gpu.py`) for scarce GPUs
+- **Templates**: Complete deployable web-terminal app — `modal_app.py`, `main.py` (PTY-WebSocket bridge), `static/index.html` (xterm.js), `pyproject.toml`, `deploy.sh`, `check_gpu.py`, `.env.example`
+- **Best Practices**: Mount filtering, WebSocket PTY bridge, bundle optimization
+- **Cross-Agent**: Follows the [Agent Skills](https://agentskills.io) open specification
+
+## Quick Deploy
+
+```bash
+cp -r templates my-terminal && cd my-terminal
+cp .env.example .env          # edit resources
+uv sync                       # install dependencies
+./deploy.sh                   # prints the https://...modal.run URL
+```
+
+## Agent Skills Specification
+
+This skill conforms to the [Agent Skills open specification](https://agentskills.io):
+
+| Field | Value |
+|-------|-------|
+| `name` | `modal-deploy` |
+| `license` | MIT |
+| `compatibility` | Claude Code, Codex, Antigravity, Hermes Agent |
+| `allowed-tools` | Bash, Read, Write, Edit |
 
 ## License
 

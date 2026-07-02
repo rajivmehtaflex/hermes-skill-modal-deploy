@@ -1,15 +1,48 @@
 ---
 name: modal-deploy
-version: 2.2.0
-description: Deploy GPU-enabled applications to Modal with pre-check workflow, optimization patterns, GPU pricing, WebSocket PTY best practices, and smart deployment scripts.
-author: Hermes Agent
+description: Deploy GPU-enabled applications to Modal with pre-check workflow, optimization patterns, GPU pricing, WebSocket PTY best practices, and smart deployment scripts. Use when deploying to Modal cloud, configuring GPU resources (T4 through B200), checking GPU availability, optimizing Modal deployments, building WebSocket PTY terminal bridges, or estimating Modal pricing.
 license: MIT
-tags: [modal, gpu, deployment, cloud, devops, pre-check, optimization, websocket, pty]
+compatibility: Works with Claude Code, Codex, Antigravity, and Hermes Agent. Requires Python 3.12+, uv package manager, and Modal CLI.
+allowed-tools: Bash Read Write Edit
+metadata:
+  author: Hermes Agent
+  version: "3.0.0"
+  tags: modal,gpu,deployment,cloud,devops,pre-check,optimization,websocket,pty
 ---
 
 # Modal Deploy
 
 Deploy GPU-enabled applications to Modal cloud with intelligent pre-check workflow to prevent wasted time on unavailable GPU resources.
+
+## Cross-Agent Compatibility
+
+This skill follows the [Agent Skills open specification](https://agentskills.io) and works across multiple AI coding agents.
+
+### Install with `npx skills add` (All Agents)
+
+```bash
+# Install for all detected agents
+npx skills add rajivmehtaflex/modal-deploy
+
+# Install for a specific agent
+npx skills add rajivmehtaflex/modal-deploy -a claude-code
+npx skills add rajivmehtaflex/modal-deploy -a codex
+npx skills add rajivmehtaflex/modal-deploy -a antigravity
+
+# Install globally
+npx skills add rajivmehtaflex/modal-deploy -g
+```
+
+### Agent-Specific Notes
+
+| Agent | Interactive Prompts | Background Tasks | File Operations |
+|-------|-------------------|-----------------|----------------|
+| **Claude Code** | Ask user directly | `&` or background shell | Native file tools |
+| **Codex** | Ask user directly | `&` or background shell | Native file tools |
+| **Antigravity** | Ask user directly | `&` or background shell | Native file tools |
+| **Hermes Agent** | `clarify` tool | `terminal(background=true)` | `write_file`, `patch` |
+
+> **For non-Hermes agents:** Wherever this skill references `clarify`, simply ask the user the question directly. Wherever it references `terminal(background=True)`, use your agent's background execution capability or append `&` to the command.
 
 ## When to Use This Skill
 
@@ -147,18 +180,18 @@ Open the printed URL in a browser — you get a shell inside the container. The 
 5. Verify (status, logs, GPU access)
 ```
 
-### Step 1: Gather Requirements with Clarify
+### Step 1: Gather Requirements
 
-Before deploying, gather requirements interactively:
+Before deploying, gather requirements interactively from the user. Ask these questions (using `clarify` in Hermes, or simply asking the user directly in Claude Code, Codex, or Antigravity):
 
-```
-clarify: "What is your primary use case?" → Training / Inference / Data processing
-clarify: "How many CPUs?" → 4 / 8 / 16 / 32
-clarify: "How much RAM in GB?" → 8 / 16 / 32 / 64
-clarify: "Which GPU?" → T4 / L4 / A10 / L40S / A100 / H100 / B200
-clarify: "Timeout duration?" → 1h / 3h / 6h / 12h / 24h
-clarify: "App name?" → string
-```
+| Question | Options |
+|----------|---------|
+| What is your primary use case? | Training / Inference / Data processing |
+| How many CPUs? | 4 / 8 / 16 / 32 |
+| How much RAM in GB? | 8 / 16 / 32 / 64 |
+| Which GPU? | T4 / L4 / A10 / L40S / A100 / H100 / B200 |
+| Timeout duration? | 1h / 3h / 6h / 12h / 24h |
+| App name? | (user-provided string) |
 
 ### Step 2: Configure `.env`
 
@@ -236,7 +269,11 @@ cd /path/to/project
 
 **Pitfall:** For slow builds, use background mode:
 ```bash
+# Hermes Agent:
 terminal(command=".venv/bin/modal deploy modal_app.py", background=True, notify_on_complete=True)
+
+# Claude Code, Codex, Antigravity, or any shell:
+.venv/bin/modal deploy modal_app.py &
 ```
 
 ### Step 5: Verify Deployment
@@ -920,8 +957,12 @@ await websocket.send_bytes(b"".join(chunks))
 
 **Fix:** Use background mode for slow builds:
 ```bash
+# Hermes Agent:
 terminal(command=".venv/bin/modal deploy modal_app.py",
          background=True, notify_on_complete=True)
+
+# Any agent or shell:
+.venv/bin/modal deploy modal_app.py &
 ```
 
 ### ❌ GPU Config Not Applied
@@ -988,6 +1029,7 @@ MODAL_MEMORY=16384
 
 ## Changelog
 
+- **v3.0.0** (2026-07-02): Cross-agent compatibility overhaul. Conformed to [Agent Skills spec](https://agentskills.io) — restructured frontmatter (`version`/`author`/`tags` moved to `metadata`, added `compatibility` and `allowed-tools` fields). Added cross-agent installation via `npx skills add rajivmehtaflex/modal-deploy`. Generalized all Hermes-specific instructions with agent-agnostic alternatives. Works with Claude Code, Codex, Antigravity, and Hermes Agent. Renamed repo from `hermes-skill-modal-deploy` → `modal-deploy`.
 - **v2.2.0** (2026-07-02): Made `templates/` a self-contained, deployable web-terminal project — added `templates/pyproject.toml` (fastapi, modal, python-dotenv, uvicorn) and a "Quick Start: Web Terminal" section with a no-auth security warning. Live-verified end-to-end on Modal (page load + WebSocket PTY echo).
 - **v2.1.0** (2026-07-02): Restored a **real** GPU pre-check — `modal shell --gpu <MODEL> -c "nvidia-smi -L"` works when no function reference is given (the v2.0.1 "CLI limitation" only applies when combining `--gpu` with a function ref). `check_gpu.py` now performs a timeout-bounded allocation test with `--gpu`/`--timeout` flags. Fixed `b"".join.join(chunks)` crash in the WebSocket template. Added missing template files (`modal_app.py`, `main.py`, `static/index.html`, `.env.example`). Corrected RTX PRO 6000 architecture (Blackwell, not Ada) and added H200/B200 VRAM. `deploy.sh` now parses `.env` values with inline comments correctly. `install.sh` is idempotent and no longer copies `.git/`.
 - **v2.0.1** (2026-06-13): Fixed broken `check_gpu.py` template. GPU pre-check is unreliable due to Modal CLI limitations (`modal shell --gpu` not supported). Updated `check_gpu.py` to no-op placeholder. Made `--skip-check` default in `deploy.sh`.
