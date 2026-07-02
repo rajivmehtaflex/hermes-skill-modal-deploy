@@ -1,6 +1,6 @@
 ---
 name: modal-deploy
-version: 2.0.0
+version: 2.1.0
 description: Deploy GPU-enabled applications to Modal with pre-check workflow, optimization patterns, GPU pricing, WebSocket PTY best practices, and smart deployment scripts.
 author: Hermes Agent
 license: MIT
@@ -56,10 +56,10 @@ Before deploying, verify:
 | **L40S** | 48 GB | Ada Lovelace | $0.000542 | $1.95 | High-end inference |
 | **A100-40GB** | 40 GB | Ampere | $0.000583 | $2.10 | Training/inference |
 | **A100-80GB** | 80 GB | Ampere | $0.000694 | $2.50 | Large model training |
-| **RTX PRO 6000** | — | Ada | $0.000842 | $3.03 | Professional workloads |
+| **RTX PRO 6000** | 96 GB | Blackwell | $0.000842 | $3.03 | Professional workloads |
 | **H100** / **H100!** | 80 GB | Hopper | $0.001097 | $3.95 | High-end training |
-| **H200** | — | Hopper | $0.001261 | $4.54 | High-end training |
-| **B200** / **B200+** | — | Blackwell | $0.001736 | $6.25 | Cutting-edge training |
+| **H200** | 141 GB | Hopper | $0.001261 | $4.54 | High-end training |
+| **B200** / **B200+** | 180 GB | Blackwell | $0.001736 | $6.25 | Cutting-edge training |
 
 ### GPU Availability Tiers
 
@@ -82,8 +82,12 @@ Before deploying, verify:
 # Multiple GPUs
 @app.function(gpu="L4:4")  # 4 L4 GPUs (max 8 for most types)
 
-# Flexible GPU request
-@app.function(gpu="B200+")  # B200 or better, billed as B200
+# Fallback list — tries preferred options first
+@app.function(gpu=["H100", "A100-40GB:2"])
+
+# Special suffixes
+@app.function(gpu="H100!")  # Strictly H100, prevents automatic H200 upgrade
+@app.function(gpu="B200+")  # B200 or B300, billed as B200
 ```
 
 ### Multi-GPU Limits
@@ -119,9 +123,9 @@ ALTERNATIVES = {
 ```
 1. Gather Requirements (clarify interview)
 2. Configure .env
-3. Deploy (deploy.sh)
-   └─ Skip GPU pre-check (unreliable), deploy directly
-4. Verify (status, logs, GPU access)
+3. Optional GPU pre-check (./deploy.sh --check) — worth it for scarce GPUs
+4. Deploy (deploy.sh)
+5. Verify (status, logs, GPU access)
 ```
 
 ### Step 1: Gather Requirements with Clarify
@@ -140,16 +144,21 @@ clarify: "App name?" → string
 ### Step 2: Configure `.env`
 
 ```bash
-# Auth handled by ~/.modal.toml (modal setup)
-AUTH_TOKEN=your_auth_token
+# Auth is handled by ~/.modal.toml (run: .venv/bin/modal setup) — no token here.
 
-# Resource Configuration
-MODAL_CPU=8.0                # CPU cores (default: 2.0)
-MODAL_MEMORY=16384           # Memory in MB (16 GB = 16384)
-MODAL_TIMEOUT=21600          # Timeout in seconds (6h = 21600)
-MODAL_GPU_COUNT=1            # Number of GPUs (default: 0)
-MODAL_GPU_MODEL="A10"        # GPU model: T4, L4, A10, L40S, A100, H100, H200, B200
+# CPU cores (default if unset: 0.125)
+MODAL_CPU=8.0
+# Memory in MB (16 GB = 16384)
+MODAL_MEMORY=16384
+# Timeout in seconds (6h = 21600)
+MODAL_TIMEOUT=21600
+# Number of GPUs (0 = no GPU)
+MODAL_GPU_COUNT=1
+# GPU model: T4, L4, A10, L40S, A100-40GB, A100-80GB, H100, H200, B200
+MODAL_GPU_MODEL="A10"
 ```
+
+A ready-to-copy version is at `templates/.env.example`.
 
 **Important:** GPU, CPU, and RAM are **independent** resources. Setting a GPU does NOT auto-configure CPU or RAM.
 
@@ -161,19 +170,21 @@ MODAL_GPU_MODEL="A10"        # GPU model: T4, L4, A10, L40S, A100, H100, H200, B
 
 **Always configure all resources explicitly.**
 
-### Step 3: Check GPU Availability (Pre-Check)
+### Step 3: Check GPU Availability (Optional Pre-Check)
 
-**Status:** GPU pre-check is **unreliable** and often unnecessary. The `check_gpu.py` script provided is a no-op that passes without checking actual availability.
+`check_gpu.py` requests a minimal container with the configured GPU and confirms allocation within a time budget:
 
-**Why pre-checks are unreliable:**
-- `modal shell --gpu` does NOT support bare commands with GPU flags — it errors with "Cannot specify container configuration arguments (--gpu) when starting a new container from a function reference."
-- Alternative approaches (temp app deployment) add complexity and may timeout on the same GPU queues that would affect your real deployment.
-- T4 and A10 GPUs are generally available within 1-3 minutes — pre-check often takes as long as deployment itself.
+```bash
+.venv/bin/python check_gpu.py                    # uses MODAL_GPU_MODEL from .env
+.venv/bin/python check_gpu.py --gpu H100 --timeout 180
+```
 
-**Recommended approach:**
-1. **Skip the check** for first-time deployments with available GPUs (T4, A10): `./deploy.sh --skip-check`
-2. **If GPU unavailable**, deployment will fail with clear error messages
-3. **Check status** after deploy: `.venv/bin/modal app list` and `.venv/bin/modal app logs <app-name>`
+Under the hood it runs `modal shell --gpu <MODEL> -c "nvidia-smi -L"`. Note that `modal shell` only rejects `--gpu` when combined with a *function reference* ("Cannot specify container configuration arguments..."); with no ref it starts a fresh container with the requested resources, so this is a genuine allocation test.
+
+**When to use it:**
+- **Skip it** (the default) for high-availability GPUs (T4, A10) — they typically allocate within 1-3 minutes, so the pre-check costs about as much time as the deploy itself.
+- **Run it** (`./deploy.sh --check`) for scarce GPUs (H100, H200, B200) where a failed allocation can stall a deploy for 10+ minutes.
+- The pre-check waits in the same allocation queue as a real deploy — that's why it's timeout-bounded (default 120s) rather than open-ended.
 
 **Pitfall:** `@modal.function` decorators MUST be at module level, not inside other functions. If you need dynamic GPU config, use `modal.App` with environment variable parsing.
 
@@ -186,11 +197,11 @@ cd /path/to/project
 ./deploy.sh
 ```
 
-Runs: config validation → GPU check → deploy → status report
+Runs: config validation → deploy → status report
 
-Skip pre-check if GPU is known available:
+Enable the GPU pre-check for scarce GPUs (H100, B200):
 ```bash
-./deploy.sh --skip-check
+./deploy.sh --check
 ```
 
 #### Option B: Manual Deployment
@@ -233,20 +244,34 @@ Dashboard: https://modal.com/apps/username/main/deployed/app-name
 
 ## Code Templates
 
-### check_gpu.py — GPU Availability Checker (DEPRECATED / NO-OP)
+### check_gpu.py — GPU Availability Checker
 
-**NOTE:** This script is provided as a placeholder but does NOT actually check GPU availability. Reliable GPU pre-checks are not feasible due to Modal CLI limitations. Use `./deploy.sh --skip-check` instead.
+Requests a minimal container with the configured GPU (`modal shell --gpu <MODEL> -c "nvidia-smi -L"`) and reports whether it was allocated within a time budget. Full script: `templates/check_gpu.py`.
 
 ```python
 #!/usr/bin/env python3
 """
-GPU availability placeholder.
-Reliable GPU pre-checks are not feasible due to Modal CLI limitations.
-Use ./deploy.sh --skip-check and check deployment logs instead.
+GPU availability pre-check for Modal deployments.
+
+Spins up a minimal container with the requested GPU via
+`modal shell --gpu <MODEL> -c "nvidia-smi -L"` and reports whether the GPU
+was allocated within a time budget.
+
+Note: `modal shell` only rejects `--gpu` when combined with a *function
+reference*; with no ref (as used here) it starts a fresh container with the
+requested resources, so this is a genuine allocation test.
+
+Caveat: the pre-check waits in the same allocation queue as a real deploy,
+so it is timeout-bounded and optional. For high-availability GPUs (T4, A10)
+you can safely skip it (`./deploy.sh` skips by default).
 """
 
+import argparse
 import os
+import shutil
+import subprocess
 import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -267,48 +292,97 @@ def suggest_alternatives(failed_gpu: str) -> list[str]:
     return alternatives.get(failed_gpu, ["T4", "A10", "L4"])
 
 
-if __name__ == "__main__":
-    gpu_model = os.getenv("MODAL_GPU_MODEL", "T4").strip('"')
+def find_modal_bin() -> str:
+    """Prefer the project venv's modal CLI, fall back to PATH."""
+    venv_modal = os.path.join(".venv", "bin", "modal")
+    if os.path.exists(venv_modal):
+        return venv_modal
+    found = shutil.which("modal")
+    if found:
+        return found
+    print("❌ modal CLI not found (.venv/bin/modal or PATH). Run: uv sync")
+    sys.exit(2)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Check Modal GPU availability")
+    parser.add_argument(
+        "--gpu",
+        default=os.getenv("MODAL_GPU_MODEL", "T4").strip().strip('"'),
+        help="GPU model to check (default: MODAL_GPU_MODEL from .env, else T4)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=120,
+        help="Seconds to wait for GPU allocation before giving up (default: 120)",
+    )
+    args = parser.parse_args()
+
+    modal_bin = find_modal_bin()
 
     print("=" * 60)
-    print("🚀 Modal GPU Availability Checker (NO-OP)")
+    print("🚀 Modal GPU Availability Checker")
     print("=" * 60)
+    print(f"📋 GPU: {args.gpu}   ⏱  Timeout: {args.timeout}s")
+    print("   Requesting a minimal container to test allocation...")
     print()
-    print("⚠️  GPU pre-check is disabled due to Modal CLI limitations.")
+
+    try:
+        result = subprocess.run(
+            [modal_bin, "shell", "--gpu", args.gpu, "--cpu", "1",
+             "-c", "nvidia-smi -L"],
+            capture_output=True,
+            text=True,
+            timeout=args.timeout,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"⏱  No {args.gpu} allocated within {args.timeout}s (queue congestion).")
+        print()
+        print(f"💡 {args.gpu} alternatives (ordered by availability):")
+        for i, alt in enumerate(suggest_alternatives(args.gpu)[:3], 1):
+            print(f"   {i}. {alt}")
+        print()
+        print("   Or deploy anyway and watch the logs:")
+        print("     ./deploy.sh && .venv/bin/modal app logs <app-name>")
+        return 1
+
+    gpu_lines = [l for l in result.stdout.splitlines() if l.startswith("GPU ")]
+    if result.returncode == 0 and gpu_lines:
+        print(f"✅ {args.gpu} allocated successfully:")
+        for line in gpu_lines:
+            print(f"   {line}")
+        return 0
+
+    print(f"❌ GPU check failed (exit {result.returncode}).")
+    tail = (result.stderr or result.stdout).strip().splitlines()[-5:]
+    for line in tail:
+        print(f"   {line}")
     print()
-    print("   The 'modal shell --gpu' pattern used in earlier versions")
-    print("   is not supported and errors with:")
-    print("   'Cannot specify container configuration arguments'")
-    print()
-    print("   Alternative approaches (temp app deployment) add")
-    print("   complexity and often timeout on the same queues that")
-    print("   would affect your real deployment.")
-    print()
-    print(f"📋 Configured GPU: {gpu_model}")
-    print()
-    print("💡 Recommended workflow:")
-    print("   1. Use ./deploy.sh --skip-check")
-    print("   2. If GPU unavailable, deployment will fail with clear error")
-    print("   3. Check status: .venv/bin/modal app list")
-    print("   4. View logs: .venv/bin/modal app logs <app-name>")
-    print()
-    print(f"💡 {gpu_model} alternatives if allocation fails:")
-    for i, alt in enumerate(suggest_alternatives(gpu_model)[:3], 1):
-        print(f"   {i}. {alt} GPU")
-    print()
-    print("✅ Skipping pre-check. Proceeding with deployment...")
-    sys.exit(0)
+    print(f"💡 {args.gpu} alternatives (ordered by availability):")
+    for i, alt in enumerate(suggest_alternatives(args.gpu)[:3], 1):
+        print(f"   {i}. {alt}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 ```
 
 ### deploy.sh — Smart Deployment Script
 
+Config validation → optional GPU pre-check → deploy → status report. Full script: `templates/deploy.sh`.
+
 ```bash
 #!/usr/bin/env bash
-# Smart deployment script with GPU availability pre-check
-# Usage: ./deploy.sh [--skip-check] (skip-check is now default)
+# Smart deployment script with optional GPU availability pre-check
+# Usage: ./deploy.sh [--check] [--skip-check]
 #
-# NOTE: GPU pre-check is disabled due to Modal CLI limitations.
-# Deploy directly and check app logs if GPU allocation fails.
+# The pre-check (check_gpu.py) requests a minimal container with the
+# configured GPU and confirms allocation within a time budget. It is
+# skipped by default because high-availability GPUs (T4, A10) usually
+# allocate within 1-3 minutes anyway; use --check for scarce GPUs
+# (H100, B200) before committing to a full deploy.
 
 set -e
 
@@ -329,24 +403,27 @@ for arg in "$@"; do
     case $arg in
         --skip-check)
             SKIP_CHECK=true
-            shift
             ;;
         --check)
             SKIP_CHECK=false
-            shift
             ;;
         *)
             echo "Unknown argument: $arg"
-            echo "Usage: $0 [--skip-check] [--check]"
+            echo "Usage: $0 [--check] [--skip-check]"
+            echo "  --check       Run GPU availability pre-check before deploying"
             echo "  --skip-check  Skip GPU availability check (default)"
-            echo "  --check       Run GPU availability placeholder check"
             exit 1
             ;;
     esac
 done
 
+# Read a value from .env, stripping inline comments and quotes
+env_value() {
+    grep "^$1=" .env | cut -d'=' -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '"' | xargs
+}
+
 echo "============================================================"
-echo "🚀 Smart Deployment with GPU Pre-Check"
+echo "🚀 Smart Deployment"
 echo "============================================================"
 echo ""
 
@@ -357,32 +434,34 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-GPU_MODEL=$(grep "^MODAL_GPU_MODEL=" .env | cut -d'=' -f2 | tr -d '"')
-CPU=$(grep "^MODAL_CPU=" .env | cut -d'=' -f2)
-MEMORY=$(grep "^MODAL_MEMORY=" .env | cut -d'=' -f2)
+GPU_MODEL=$(env_value MODAL_GPU_MODEL)
+CPU=$(env_value MODAL_CPU)
+MEMORY=$(env_value MODAL_MEMORY)
 
-echo "   GPU Model: $GPU_MODEL"
-echo "   CPU: $CPU cores"
-echo "   Memory: $MEMORY MB"
+echo "   GPU Model: ${GPU_MODEL:-none}"
+echo "   CPU: ${CPU:-default} cores"
+echo "   Memory: ${MEMORY:-default} MB"
 echo ""
 
-# Step 2: GPU check (optional, no-op)
+# Step 2: GPU pre-check (optional)
 if [ "$SKIP_CHECK" = true ]; then
-    echo -e "${YELLOW}⚠️  Skipping GPU availability check (default)${NC}"
-    echo "   Deploy directly. If GPU unavailable, check:"
+    echo -e "${YELLOW}⏭  Skipping GPU availability check (default; use --check to enable)${NC}"
+    echo "   If GPU allocation stalls after deploy, check:"
     echo "     .venv/bin/modal app list"
     echo "     .venv/bin/modal app logs <app-name>"
     echo ""
 else
-    echo "🔍 Step 2: Running GPU availability placeholder..."
+    echo "🔍 Step 2: Checking GPU availability..."
     echo ""
 
     if $CHECK_SCRIPT; then
         echo ""
-        echo -e "${GREEN}✅ Check passed (no-op)${NC}"
+        echo -e "${GREEN}✅ GPU available${NC}"
     else
         echo ""
-        echo -e "${RED}❌ Check failed${NC}"
+        echo -e "${RED}❌ GPU pre-check failed — see alternatives above${NC}"
+        echo "   Update MODAL_GPU_MODEL in .env, or deploy anyway with:"
+        echo "     ./deploy.sh --skip-check"
         exit 1
     fi
     echo ""
@@ -399,8 +478,8 @@ if $DEPLOY_CMD; then
     echo "============================================================"
     echo ""
     echo "Next steps:"
-    echo "  1. Check status: modal app list"
-    echo "  2. View logs: modal app logs <app-name>"
+    echo "  1. Check status: .venv/bin/modal app list"
+    echo "  2. View logs: .venv/bin/modal app logs <app-name>"
     echo "  3. Access the app at the URL provided above"
 else
     echo ""
@@ -409,7 +488,7 @@ else
     echo "============================================================"
     echo ""
     echo "Troubleshooting:"
-    echo "  1. Check logs: modal app logs <app-name>"
+    echo "  1. Check logs: .venv/bin/modal app logs <app-name>"
     echo "  2. Verify .env configuration"
     echo "  3. Try a different GPU model"
     exit 1
@@ -454,7 +533,7 @@ image = (
 cpu = float(os.getenv("MODAL_CPU", "2.0"))
 memory = int(os.getenv("MODAL_MEMORY", "4096"))
 gpu_count = int(os.getenv("MODAL_GPU_COUNT", "0"))
-gpu_model = os.getenv("MODAL_GPU_MODEL", "")
+gpu_model = os.getenv("MODAL_GPU_MODEL", "").strip().strip('"')
 timeout = int(os.getenv("MODAL_TIMEOUT", "10800"))
 
 # Build GPU config string
@@ -482,6 +561,8 @@ def fastapi_app():
 ```
 
 ### main.py — PTY-WebSocket Bridge (with best practices)
+
+A matching xterm.js frontend is at `templates/static/index.html` (binary WebSocket to `/ws`, sends `{"type": "resize", rows, cols}` on resize).
 
 ```python
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -558,13 +639,7 @@ async def terminal_websocket(websocket: WebSocket):
                             break
                         chunks.append(extra)
 
-                    if chunks:
-                        await websocket.send_bytes(b"".join.join(chunks))
-                        for _ in range(len(chunks)):
-                            try:
-                                queue.task_done()
-                            except ValueError:
-                                pass
+                    await websocket.send_bytes(b"".join(chunks))
             except WebSocketDisconnect:
                 logger.info("WebSocket disconnected during send")
             except Exception as e:
@@ -601,6 +676,10 @@ async def terminal_websocket(websocket: WebSocket):
             loop.remove_reader(fd)
             sender_task.cancel()
             try:
+                await sender_task
+            except asyncio.CancelledError:
+                pass
+            try:
                 os.close(fd)
             except OSError:
                 pass
@@ -632,7 +711,7 @@ async def terminal_websocket(websocket: WebSocket):
 |-----|-----------|------------|-------|
 | CPU-only | 20-60s | <5s | No GPU queue |
 | T4 | 1-2 min | 30-60s | Most available |
-| A10 | 1-3 min | 30-90s | **Deployed in 3.5s** ✅ |
+| A10 | 1-3 min | 30-90s | Good availability |
 | L4 | 2-5 min | 30-90s | Can timeout ⚠️ |
 | L40S | 3-6 min | 60-120s | Popular, higher demand |
 | H100 | 3-10 min | 1-3 min | Premium, long queues |
@@ -876,8 +955,8 @@ MODAL_MEMORY=16384
 ### GPU Not Available
 
 ```bash
-.venv/bin/python check_gpu.py   # Pre-check
-# Switch GPU model in .env if needed
+.venv/bin/python check_gpu.py --gpu H100 --timeout 180   # Test allocation
+# Switch GPU model in .env if the check fails (alternatives are printed)
 ```
 
 ### Performance Issues
@@ -890,7 +969,7 @@ MODAL_MEMORY=16384
 
 ## Changelog
 
-- **v2.0.2** (2026-06-13): Added communication pitfall when users ask about skill changes vs project changes. When responding "give me details of changes" in a skill-using session, first check if they mean the skill or the deployed project — answer based on context (skill URL/name invocation indicates skill focus).
+- **v2.1.0** (2026-07-02): Restored a **real** GPU pre-check — `modal shell --gpu <MODEL> -c "nvidia-smi -L"` works when no function reference is given (the v2.0.1 "CLI limitation" only applies when combining `--gpu` with a function ref). `check_gpu.py` now performs a timeout-bounded allocation test with `--gpu`/`--timeout` flags. Fixed `b"".join.join(chunks)` crash in the WebSocket template. Added missing template files (`modal_app.py`, `main.py`, `static/index.html`, `.env.example`). Corrected RTX PRO 6000 architecture (Blackwell, not Ada) and added H200/B200 VRAM. `deploy.sh` now parses `.env` values with inline comments correctly. `install.sh` is idempotent and no longer copies `.git/`.
 - **v2.0.1** (2026-06-13): Fixed broken `check_gpu.py` template. GPU pre-check is unreliable due to Modal CLI limitations (`modal shell --gpu` not supported). Updated `check_gpu.py` to no-op placeholder. Made `--skip-check` default in `deploy.sh`.
 - **v2.0.0** (2026-06-13): Unified `modal-deployment` + `modal-gpu-deployment` into single skill. Added WebSocket PTY best practices, cost calculator, GPU alternatives map.
 - **v1.0.0** (2026-06-13): Initial GPU pre-check workflow with optimization patterns.

@@ -3,26 +3,27 @@ set -e
 
 echo "🚀 Installing modal-deploy skill..."
 
-# Create skills directory
-mkdir -p ~/.hermes/skills/mlops/
+DEST=~/.hermes/skills/mlops/modal-deploy
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-# Clone repository
-echo "📥 Cloning repository..."
+# Fetch repository
+echo "📥 Downloading..."
 if command -v gh &> /dev/null; then
-    gh repo clone rajivmehtaflex/hermes-skill-modal-deploy /tmp/modal-deploy-install
+    gh repo clone rajivmehtaflex/hermes-skill-modal-deploy "$TMP_DIR/skill" -- --depth 1
+    rm -rf "$TMP_DIR/skill/.git"
 else
     echo "⚠️  gh CLI not found, using curl..."
-    curl -L https://github.com/rajivmehtaflex/hermes-skill-modal-deploy/archive/refs/heads/main.tar.gz | tar xz -C /tmp
-    mv /tmp/hermes-skill-modal-deploy-main /tmp/modal-deploy-install
+    curl -fsSL https://github.com/rajivmehtaflex/hermes-skill-modal-deploy/archive/refs/heads/main.tar.gz | tar xz -C "$TMP_DIR"
+    mv "$TMP_DIR/hermes-skill-modal-deploy-main" "$TMP_DIR/skill"
 fi
 
-# Install skill
+# Install skill (idempotent — replaces any previous install)
 echo "📦 Installing skill..."
-cp -r /tmp/modal-deploy-install ~/.hermes/skills/mlops/modal-deploy
+mkdir -p "$(dirname "$DEST")"
+rm -rf "$DEST"
+cp -r "$TMP_DIR/skill" "$DEST"
 
-# Cleanup
-rm -rf /tmp/modal-deploy-install
-
-echo "✅ Skill installed at ~/.hermes/skills/mlops/modal-deploy"
+echo "✅ Skill installed at $DEST"
 echo ""
 echo "Usage: Launch Hermes Agent and invoke 'load modal-deploy skill'"
