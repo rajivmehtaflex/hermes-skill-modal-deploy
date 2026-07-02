@@ -48,7 +48,7 @@ load modal-deploy skill
 - **GPU Options**: T4, L4, A10, L40S, A100, H100, H200, B200
 - **Pricing**: $0.59/h (T4) to $6.25/h (B200)
 - **GPU Pre-Check**: Timeout-bounded allocation test (`templates/check_gpu.py`) for scarce GPUs
-- **Templates**: `modal_app.py`, `main.py` (PTY-WebSocket bridge), `static/index.html` (xterm.js), `deploy.sh`, `check_gpu.py`, `.env.example`
+- **Templates**: a complete deployable web-terminal app — `modal_app.py`, `main.py` (PTY-WebSocket bridge), `static/index.html` (xterm.js), `pyproject.toml`, `deploy.sh`, `check_gpu.py`, `.env.example`. Deploy with `cp -r templates my-terminal && cd my-terminal && cp .env.example .env && uv sync && ./deploy.sh` (no auth on the terminal — stop the app when idle)
 - **Best Practices**: Mount filtering, WebSocket PTY bridge
 
 ## License

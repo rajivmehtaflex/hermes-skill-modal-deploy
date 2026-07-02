@@ -1,6 +1,6 @@
 ---
 name: modal-deploy
-version: 2.1.0
+version: 2.2.0
 description: Deploy GPU-enabled applications to Modal with pre-check workflow, optimization patterns, GPU pricing, WebSocket PTY best practices, and smart deployment scripts.
 author: Hermes Agent
 license: MIT
@@ -115,6 +115,25 @@ ALTERNATIVES = {
     "T4":   ["A10", "L4", "A100"],
 }
 ```
+
+---
+
+## Quick Start: Web Terminal
+
+`templates/` is a **complete, deployable web-terminal app**: a browser terminal (xterm.js) connected over WebSocket to a bash PTY running in a Modal container. Deploy it as-is:
+
+```bash
+cp -r templates my-terminal && cd my-terminal
+cp .env.example .env          # edit resources; MODAL_GPU_COUNT=0 for CPU-only
+# edit modal_app.py: set modal.App("your-app-name")
+uv sync                       # installs fastapi/modal/uvicorn into .venv
+./deploy.sh                   # prints the https://...modal.run URL
+```
+
+Open the printed URL in a browser — you get a shell inside the container. The app is serverless (`scaledown_window=300`), so it scales to zero when idle and costs nothing while unused.
+
+> ⚠️ **Security:** the terminal has **no authentication** — anyone with the URL gets a shell inside the (sandboxed) Modal container. Don't put secrets in the container, and stop the app when not in use:
+> `.venv/bin/modal app stop <app-name> --yes`
 
 ---
 
@@ -969,6 +988,7 @@ MODAL_MEMORY=16384
 
 ## Changelog
 
+- **v2.2.0** (2026-07-02): Made `templates/` a self-contained, deployable web-terminal project — added `templates/pyproject.toml` (fastapi, modal, python-dotenv, uvicorn) and a "Quick Start: Web Terminal" section with a no-auth security warning. Live-verified end-to-end on Modal (page load + WebSocket PTY echo).
 - **v2.1.0** (2026-07-02): Restored a **real** GPU pre-check — `modal shell --gpu <MODEL> -c "nvidia-smi -L"` works when no function reference is given (the v2.0.1 "CLI limitation" only applies when combining `--gpu` with a function ref). `check_gpu.py` now performs a timeout-bounded allocation test with `--gpu`/`--timeout` flags. Fixed `b"".join.join(chunks)` crash in the WebSocket template. Added missing template files (`modal_app.py`, `main.py`, `static/index.html`, `.env.example`). Corrected RTX PRO 6000 architecture (Blackwell, not Ada) and added H200/B200 VRAM. `deploy.sh` now parses `.env` values with inline comments correctly. `install.sh` is idempotent and no longer copies `.git/`.
 - **v2.0.1** (2026-06-13): Fixed broken `check_gpu.py` template. GPU pre-check is unreliable due to Modal CLI limitations (`modal shell --gpu` not supported). Updated `check_gpu.py` to no-op placeholder. Made `--skip-check` default in `deploy.sh`.
 - **v2.0.0** (2026-06-13): Unified `modal-deployment` + `modal-gpu-deployment` into single skill. Added WebSocket PTY best practices, cost calculator, GPU alternatives map.
