@@ -2,10 +2,11 @@ import modal
 import os
 import sys
 from dotenv import load_dotenv
+import config
 
 load_dotenv()
 
-app = modal.App("your-app-name")  # <-- Change this
+app = modal.App("modal-web-terminal")  # <-- Change this
 
 # Optimized image with mount filtering
 image = (
@@ -29,13 +30,13 @@ image = (
     )
 )
 
-# Parse resource configuration from .env
-cpu = float(os.getenv("MODAL_CPU", "2.0"))
-memory = int(os.getenv("MODAL_MEMORY", "4096"))
-gpu_count = int(os.getenv("MODAL_GPU_COUNT", "0"))
-gpu_model = os.getenv("MODAL_GPU_MODEL", "").strip().strip('"')
-timeout = int(os.getenv("MODAL_TIMEOUT", "10800"))
-volume_name = os.getenv("MODAL_VOLUME_NAME", "").strip().strip('"')
+# Parse resource configuration from config.py
+cpu = config.CPU
+memory = config.MEMORY
+gpu_count = config.GPU_COUNT
+gpu_model = config.GPU_MODEL
+timeout = config.TIMEOUT
+volume_name = config.VOLUME_NAME
 
 # Build GPU config string
 gpu_config = None

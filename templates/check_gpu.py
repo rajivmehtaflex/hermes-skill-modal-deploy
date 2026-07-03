@@ -25,6 +25,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+try:
+    import config
+    default_gpu = config.GPU_MODEL or "T4"
+except ImportError:
+    default_gpu = os.getenv("MODAL_GPU_MODEL", "T4").strip().strip('"')
+
 
 def suggest_alternatives(failed_gpu: str) -> list[str]:
     """Suggest alternative GPU models ordered by availability."""
@@ -57,8 +63,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Check Modal GPU availability")
     parser.add_argument(
         "--gpu",
-        default=os.getenv("MODAL_GPU_MODEL", "T4").strip().strip('"'),
-        help="GPU model to check (default: MODAL_GPU_MODEL from .env, else T4)",
+        default=default_gpu,
+        help="GPU model to check (default: GPU_MODEL from config.py, else T4)",
     )
     parser.add_argument(
         "--timeout",

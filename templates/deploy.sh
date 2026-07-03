@@ -41,9 +41,9 @@ for arg in "$@"; do
     esac
 done
 
-# Read a value from .env, stripping inline comments and quotes
-env_value() {
-    grep "^$1=" .env | cut -d'=' -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '"' | xargs
+# Read a value from config.py, stripping inline comments, quotes, and whitespace
+config_value() {
+    grep "^$1[[:space:]]*=" config.py | cut -d'=' -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '"' | tr -d "'" | xargs
 }
 
 echo "============================================================"
@@ -53,14 +53,14 @@ echo ""
 
 # Step 1: Check configuration
 echo "📋 Step 1: Checking configuration..."
-if [ ! -f ".env" ]; then
-    echo -e "${RED}❌ .env file not found${NC}"
+if [ ! -f "config.py" ]; then
+    echo -e "${RED}❌ config.py file not found${NC}"
     exit 1
 fi
 
-GPU_MODEL=$(env_value MODAL_GPU_MODEL)
-CPU=$(env_value MODAL_CPU)
-MEMORY=$(env_value MODAL_MEMORY)
+GPU_MODEL=$(config_value GPU_MODEL)
+CPU=$(config_value CPU)
+MEMORY=$(config_value MEMORY)
 
 echo "   GPU Model: ${GPU_MODEL:-none}"
 echo "   CPU: ${CPU:-default} cores"
@@ -113,7 +113,7 @@ else
     echo ""
     echo "Troubleshooting:"
     echo "  1. Check logs: .venv/bin/modal app logs <app-name>"
-    echo "  2. Verify .env configuration"
+    echo "  2. Verify config.py configuration"
     echo "  3. Try a different GPU model"
     exit 1
 fi

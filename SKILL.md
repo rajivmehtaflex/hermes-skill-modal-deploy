@@ -69,7 +69,7 @@ Use when you need to:
 
 Before deploying, verify:
 
-- [ ] `.env` file exists with correct GPU model, CPU, memory, timeout
+- [ ] `config.py` file exists with correct GPU model, CPU, memory, timeout
 - [ ] Modal CLI authenticated (`.venv/bin/modal whoami`)
 - [ ] `check_gpu.py` available in project root
 - [ ] `deploy.sh` is executable (`chmod +x deploy.sh`)
@@ -157,7 +157,7 @@ ALTERNATIVES = {
 
 ```bash
 cp -r templates my-terminal && cd my-terminal
-cp .env.example .env          # edit resources; MODAL_GPU_COUNT=0 for CPU-only
+cp templates/config.py config.py  # edit resources; GPU_COUNT=0 for CPU-only
 # edit modal_app.py: set modal.App("your-app-name")
 uv sync                       # installs fastapi/modal/uvicorn into .venv
 ./deploy.sh                   # prints the https://...modal.run URL
@@ -174,7 +174,7 @@ Open the printed URL in a browser — you get a shell inside the container. The 
 
 ```
 1. Gather Requirements (clarify interview)
-2. Configure .env
+2. Configure config.py
 3. Optional GPU pre-check (./deploy.sh --check) — worth it for scarce GPUs
 4. Deploy (deploy.sh)
 5. Verify (status, logs, GPU access)
@@ -193,27 +193,22 @@ Before deploying, gather requirements interactively from the user. Ask these que
 | Timeout duration? | 1h / 3h / 6h / 12h / 24h |
 | App name? | (user-provided string) |
 
-### Step 2: Configure `.env`
+### Step 2: Configure `config.py`
 
-```bash
-# Auth is handled by ~/.modal.toml (run: .venv/bin/modal setup) — no token here.
+```python
+# Modal resource configuration (non-secret)
+# This file is uploaded to the container to ensure local and remote environments
+# evaluate resource allocations and volumes identically.
 
-# CPU cores (default if unset: 0.125)
-MODAL_CPU=8.0
-# Memory in MB (16 GB = 16384)
-MODAL_MEMORY=16384
-# Timeout in seconds (6h = 21600)
-MODAL_TIMEOUT=21600
-# Number of GPUs (0 = no GPU)
-MODAL_GPU_COUNT=1
-# GPU model: T4, L4, A10, L40S, A100-40GB, A100-80GB, H100, H200, B200
-MODAL_GPU_MODEL="A10"
-
-# Persistent Volume Name (optional, empty to disable persistent storage)
-MODAL_VOLUME_NAME="my-storage-volume"
+CPU = 2.0
+MEMORY = 4096
+TIMEOUT = 10800
+GPU_COUNT = 0
+GPU_MODEL = ""
+VOLUME_NAME = ""
 ```
 
-A ready-to-copy version is at `templates/.env.example`.
+A ready-to-copy version is at `templates/config.py`.
 
 **Important:** GPU, CPU, and RAM are **independent** resources. Setting a GPU does NOT auto-configure CPU or RAM.
 
@@ -230,7 +225,7 @@ A ready-to-copy version is at `templates/.env.example`.
 `check_gpu.py` requests a minimal container with the configured GPU and confirms allocation within a time budget:
 
 ```bash
-.venv/bin/python check_gpu.py                    # uses MODAL_GPU_MODEL from .env
+.venv/bin/python check_gpu.py                    # uses GPU_MODEL from config.py
 .venv/bin/python check_gpu.py --gpu H100 --timeout 180
 ```
 
@@ -335,6 +330,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+try:
+    import config
+    default_gpu = config.GPU_MODEL or "T4"
+except ImportError:
+    default_gpu = os.getenv("MODAL_GPU_MODEL", "T4").strip().strip('"')
+
 
 def suggest_alternatives(failed_gpu: str) -> list[str]:
     """Suggest alternative GPU models ordered by availability."""
@@ -367,8 +368,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Check Modal GPU availability")
     parser.add_argument(
         "--gpu",
-        default=os.getenv("MODAL_GPU_MODEL", "T4").strip().strip('"'),
-        help="GPU model to check (default: MODAL_GPU_MODEL from .env, else T4)",
+        default=default_gpu,
+        help="GPU model to check (default: GPU_MODEL from config.py, else T4)",
     )
     parser.add_argument(
         "--timeout",
@@ -476,9 +477,9 @@ for arg in "$@"; do
     esac
 done
 
-# Read a value from .env, stripping inline comments and quotes
-env_value() {
-    grep "^$1=" .env | cut -d'=' -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '"' | xargs
+# Read a value from config.py, stripping inline comments, quotes, and whitespace
+config_value() {
+    grep "^$1[[:space:]]*=" config.py | cut -d'=' -f2- | sed -E 's/[[:space:]]*#.*$//' | tr -d '"' | tr -d "'" | xargs
 }
 
 echo "============================================================"
@@ -488,14 +489,14 @@ echo ""
 
 # Step 1: Check configuration
 echo "📋 Step 1: Checking configuration..."
-if [ ! -f ".env" ]; then
-    echo -e "${RED}❌ .env file not found${NC}"
+if [ ! -f "config.py" ]; then
+    echo -e "${RED}❌ config.py file not found${NC}"
     exit 1
 fi
 
-GPU_MODEL=$(env_value MODAL_GPU_MODEL)
-CPU=$(env_value MODAL_CPU)
-MEMORY=$(env_value MODAL_MEMORY)
+GPU_MODEL=$(config_value GPU_MODEL)
+CPU=$(config_value CPU)
+MEMORY=$(config_value MEMORY)
 
 echo "   GPU Model: ${GPU_MODEL:-none}"
 echo "   CPU: ${CPU:-default} cores"
@@ -519,7 +520,7 @@ else
     else
         echo ""
         echo -e "${RED}❌ GPU pre-check failed — see alternatives above${NC}"
-        echo "   Update MODAL_GPU_MODEL in .env, or deploy anyway with:"
+        echo "   Update GPU_MODEL in config.py, or deploy anyway with:"
         echo "     ./deploy.sh --skip-check"
         exit 1
     fi
@@ -548,7 +549,7 @@ else
     echo ""
     echo "Troubleshooting:"
     echo "  1. Check logs: .venv/bin/modal app logs <app-name>"
-    echo "  2. Verify .env configuration"
+    echo "  2. Verify config.py configuration"
     echo "  3. Try a different GPU model"
     exit 1
 fi
@@ -561,6 +562,7 @@ import modal
 import os
 import sys
 from dotenv import load_dotenv
+import config
 
 load_dotenv()
 
@@ -588,13 +590,13 @@ image = (
     )
 )
 
-# Parse resource configuration from .env
-cpu = float(os.getenv("MODAL_CPU", "2.0"))
-memory = int(os.getenv("MODAL_MEMORY", "4096"))
-gpu_count = int(os.getenv("MODAL_GPU_COUNT", "0"))
-gpu_model = os.getenv("MODAL_GPU_MODEL", "").strip().strip('"')
-timeout = int(os.getenv("MODAL_TIMEOUT", "10800"))
-volume_name = os.getenv("MODAL_VOLUME_NAME", "").strip().strip('"')
+# Parse resource configuration from config.py
+cpu = config.CPU
+memory = config.MEMORY
+gpu_count = config.GPU_COUNT
+gpu_model = config.GPU_MODEL
+timeout = config.TIMEOUT
+volume_name = config.VOLUME_NAME
 
 # Build GPU config string
 gpu_config = None
