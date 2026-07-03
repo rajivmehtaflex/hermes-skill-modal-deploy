@@ -35,6 +35,8 @@ async def terminal_websocket(websocket: WebSocket):
     if child_pid == 0:
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
+        if os.path.exists("/workspace"):
+            os.chdir("/workspace")
         os.execvpe("/bin/bash", ["/bin/bash"], env)
     else:
         loop = asyncio.get_event_loop()

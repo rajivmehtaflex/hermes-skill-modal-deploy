@@ -35,6 +35,7 @@ memory = int(os.getenv("MODAL_MEMORY", "4096"))
 gpu_count = int(os.getenv("MODAL_GPU_COUNT", "0"))
 gpu_model = os.getenv("MODAL_GPU_MODEL", "").strip().strip('"')
 timeout = int(os.getenv("MODAL_TIMEOUT", "10800"))
+volume_name = os.getenv("MODAL_VOLUME_NAME", "").strip().strip('"')
 
 # Build GPU config string
 gpu_config = None
@@ -44,11 +45,17 @@ if gpu_count > 0:
     else:
         gpu_config = str(gpu_count)
 
+# Configure persistent volumes if specified
+volumes = {}
+if volume_name:
+    volumes["/workspace"] = modal.Volume.from_name(volume_name, create_if_missing=True)
+
 @app.function(
     image=image,
     cpu=cpu,
     memory=memory,
     gpu=gpu_config,
+    volumes=volumes,
     scaledown_window=300,
     timeout=timeout
 )

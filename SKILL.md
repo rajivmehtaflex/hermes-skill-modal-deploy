@@ -208,6 +208,9 @@ MODAL_TIMEOUT=21600
 MODAL_GPU_COUNT=1
 # GPU model: T4, L4, A10, L40S, A100-40GB, A100-80GB, H100, H200, B200
 MODAL_GPU_MODEL="A10"
+
+# Persistent Volume Name (optional, empty to disable persistent storage)
+MODAL_VOLUME_NAME="my-storage-volume"
 ```
 
 A ready-to-copy version is at `templates/.env.example`.
@@ -591,6 +594,7 @@ memory = int(os.getenv("MODAL_MEMORY", "4096"))
 gpu_count = int(os.getenv("MODAL_GPU_COUNT", "0"))
 gpu_model = os.getenv("MODAL_GPU_MODEL", "").strip().strip('"')
 timeout = int(os.getenv("MODAL_TIMEOUT", "10800"))
+volume_name = os.getenv("MODAL_VOLUME_NAME", "").strip().strip('"')
 
 # Build GPU config string
 gpu_config = None
@@ -600,11 +604,17 @@ if gpu_count > 0:
     else:
         gpu_config = str(gpu_count)
 
+# Configure persistent volumes if specified
+volumes = {}
+if volume_name:
+    volumes["/workspace"] = modal.Volume.from_name(volume_name, create_if_missing=True)
+
 @app.function(
     image=image,
     cpu=cpu,
     memory=memory,
     gpu=gpu_config,
+    volumes=volumes,
     scaledown_window=300,
     timeout=timeout
 )
@@ -658,6 +668,8 @@ async def terminal_websocket(websocket: WebSocket):
     if child_pid == 0:
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
+        if os.path.exists("/workspace"):
+            os.chdir("/workspace")
         os.execvpe("/bin/bash", ["/bin/bash"], env)
     else:
         loop = asyncio.get_event_loop()
