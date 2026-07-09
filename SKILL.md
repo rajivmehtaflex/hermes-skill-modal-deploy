@@ -6,7 +6,7 @@ compatibility: Works with Claude Code, Codex, Antigravity, and Hermes Agent. Req
 allowed-tools: Bash Read Write Edit
 metadata:
   author: Hermes Agent
-  version: "3.0.0"
+  version: "3.1.0"
   tags: modal,gpu,deployment,cloud,devops,pre-check,optimization,websocket,pty
 ---
 
@@ -178,6 +178,7 @@ Open the printed URL in a browser — you get a shell inside the container. The 
 3. Optional GPU pre-check (./deploy.sh --check) — worth it for scarce GPUs
 4. Deploy (deploy.sh)
 5. Verify (status, logs, GPU access)
+6. Teardown (stop cloud app + remove local project folder)
 ```
 
 ### Step 1: Gather Requirements
@@ -1010,6 +1011,70 @@ MODAL_MEMORY=16384
 
 ---
 
+## Teardown (Post-Deployment Cleanup)
+
+After the deployment is verified and the URL has been delivered, clean up both
+the cloud app and the local project folder.
+
+### When to Teardown
+
+| Scenario | Stop Cloud App? | Remove Local Folder? |
+|----------|----------------|---------------------|
+| User is done with the app | ✅ Yes | ✅ Yes |
+| App should keep running, folder was scaffolding only | ❌ No | ✅ Yes |
+| Iterating — will redeploy from same folder | ❌ No | ❌ No |
+
+### Step 1: Stop the Cloud App
+
+```bash
+.venv/bin/modal app stop <app-name> --yes
+```
+
+This scales the app to zero and frees the webhook subdomain. The app definition
+remains in your Modal dashboard (re-deploy from the same `modal_app.py` later).
+
+**Hermes Agent:**
+```bash
+terminal(command=".venv/bin/modal app stop <app-name> --yes")
+```
+
+**Claude Code, Codex, Antigravity, or any shell:**
+```bash
+.venv/bin/modal app stop <app-name> --yes
+```
+
+### Step 2: Remove the Local Project Folder
+
+**Important:** Only remove the folder after confirming the cloud app is stopped
+(if teardown was requested). Deleting the local folder does NOT affect a running
+cloud app — but if you need to stop it later, you'll need any `modal` CLI (not
+necessarily the project's venv).
+
+```bash
+# From the parent directory of the project folder
+cd .. && rm -rf <project-folder-name>
+```
+
+**Hermes Agent** (use `terminal`, not `write_file` — `write_file` cannot remove directories):
+```bash
+terminal(command="cd /parent/path && rm -rf <project-folder-name>")
+```
+
+### Full Teardown (One-Shot)
+
+```bash
+# Stop cloud app then remove local folder
+.venv/bin/modal app stop <app-name> --yes && cd .. && rm -rf <project-folder-name>
+```
+
+### What Teardown Does NOT Do
+
+- Does **not** delete the app definition from your Modal dashboard (use the Modal web UI for permanent deletion)
+- Does **not** revoke Modal credentials or tokens
+- Does **not** delete any persistent volumes (data in `modal.Volume` persists)
+
+---
+
 ## Troubleshooting
 
 ### Authentication Issues
@@ -1043,6 +1108,7 @@ MODAL_MEMORY=16384
 
 ## Changelog
 
+- **v3.1.0** (2026-07-09): Added Teardown section covering post-deployment cleanup — stopping the cloud app (`modal app stop`) and removing the local project folder. Added decision table for when to teardown. Updated deployment workflow to include Step 6 (Teardown). Cross-agent commands for Hermes, Claude Code, Codex, and Antigravity.
 - **v3.0.0** (2026-07-02): Cross-agent compatibility overhaul. Conformed to [Agent Skills spec](https://agentskills.io) — restructured frontmatter (`version`/`author`/`tags` moved to `metadata`, added `compatibility` and `allowed-tools` fields). Added cross-agent installation via `npx skills add rajivmehtaflex/modal-deploy`. Generalized all Hermes-specific instructions with agent-agnostic alternatives. Works with Claude Code, Codex, Antigravity, and Hermes Agent. Renamed repo from `hermes-skill-modal-deploy` → `modal-deploy`.
 - **v2.2.0** (2026-07-02): Made `templates/` a self-contained, deployable web-terminal project — added `templates/pyproject.toml` (fastapi, modal, python-dotenv, uvicorn) and a "Quick Start: Web Terminal" section with a no-auth security warning. Live-verified end-to-end on Modal (page load + WebSocket PTY echo).
 - **v2.1.0** (2026-07-02): Restored a **real** GPU pre-check — `modal shell --gpu <MODEL> -c "nvidia-smi -L"` works when no function reference is given (the v2.0.1 "CLI limitation" only applies when combining `--gpu` with a function ref). `check_gpu.py` now performs a timeout-bounded allocation test with `--gpu`/`--timeout` flags. Fixed `b"".join.join(chunks)` crash in the WebSocket template. Added missing template files (`modal_app.py`, `main.py`, `static/index.html`, `.env.example`). Corrected RTX PRO 6000 architecture (Blackwell, not Ada) and added H200/B200 VRAM. `deploy.sh` now parses `.env` values with inline comments correctly. `install.sh` is idempotent and no longer copies `.git/`.
